@@ -6,7 +6,8 @@ from datetime import datetime
 # TODO: use new RucioGlobusTest application to centralize the globus token calls
 # RucioGlobusTest is NOT a NativeApp
 def getTransferClient():
-    cfg = yaml.safe_load(open("./config.yml"))
+    # cfg = yaml.safe_load(open("./config.yml"))
+    cfg = yaml.safe_load(open("/opt/rucio/lib/rucio/transfertool/config.yml"))
     client_id = cfg['globus']['apps']['SDK Tutorial App']['client_id']
     auth_client = NativeAppAuthClient(client_id)
     refresh_token = cfg['globus']['apps']['SDK Tutorial App']['refresh_token']
@@ -20,7 +21,8 @@ def getTransferClient():
     return tc
 
 def getTransferData():
-    cfg = yaml.safe_load(open("./config.yml"))
+    # cfg = yaml.safe_load(open("./config.yml"))
+    cfg = yaml.safe_load(open("/opt/rucio/lib/rucio/transfertool/config.yml"))
     client_id = cfg['globus']['apps']['SDK Tutorial App']['client_id']
     auth_client = NativeAppAuthClient(client_id)
     refresh_token = cfg['globus']['apps']['SDK Tutorial App']['refresh_token']
@@ -76,7 +78,8 @@ def submit_xfer(source_endpoint_id, destination_endpoint_id, source_path, dest_p
 
 def bulk_submit_xfer(submitjob, recursive=False):
 
-    cfg = yaml.safe_load(open("./config.yml"))
+    # cfg = yaml.safe_load(open("./config.yml"))
+    cfg = yaml.safe_load(open("/opt/rucio/lib/rucio/transfertool/config.yml"))
     client_id = cfg['globus']['apps']['SDK Tutorial App']['client_id']
     auth_client = NativeAppAuthClient(client_id)
     refresh_token = cfg['globus']['apps']['SDK Tutorial App']['refresh_token']
