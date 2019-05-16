@@ -1,39 +1,5 @@
-# Copyright 2012-2019 CERN for the benefit of the ATLAS collaboration.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-# Authors:
-# - Ralph Vigne <ralph.vigne@cern.ch>, 2012-2014
-# - Vincent Garonne <vgaronne@gmail.com>, 2012-2016
-# - Mario Lassnig <mario.lassnig@cern.ch>, 2013-2019
-# - Cedric Serfon <cedric.serfon@cern.ch>, 2013-2016
-# - Wen Guan <wguan.icedew@gmail.com>, 2014-2017
-# - Cheng-Hsi Chao <cheng-hsi.chao@cern.ch>, 2014
-# - Tobias Wegner <twegner@cern.ch>, 2017
-# - Brian Bockelman <bbockelm@cse.unl.edu>, 2018
-# - Martin Barisits <martin.barisits@cern.ch>, 2018
-# - Nicolo Magini <Nicolo.Magini@cern.ch>, 2018
-# - Hannes Hansen <hannes.jakob.hansen@cern.ch>, 2019
-# - James Clark <james.clark@physics.gatech.edu>, 2019
-#
-# PY3K COMPATIBLE
-
-"""
-This module defines the base class for implementing a transfer protocol,
-along with some of the default methods for LFN2PFN translations.
-"""
-
 import hashlib
+import logging
 
 try:
     # PY2
@@ -47,13 +13,13 @@ from six import string_types
 
 from rucio.common import config, exception
 from rucio.rse import rsemanager
+from rucio.rse.protocols.protocol import RSEProtocol
 
 if getattr(rsemanager, 'CLIENT_MODE', None):
     from rucio.client.rseclient import RSEClient
 
 if getattr(rsemanager, 'SERVER_MODE', None):
     from rucio.core import replica
-
 
 class RSEDeterministicTranslation(object):
     """
@@ -151,27 +117,6 @@ class RSEDeterministicTranslation(object):
             scope = scope.replace('.', '/')
         return '%s/%s' % (scope, name)
 
-    @staticmethod
-    def __ligo(scope, name, rse, rse_attrs, protocol_attrs):
-        """
-        Given a LFN, convert it directly to a path using the Caltech schema
-
-        e.g.,: ER8:H-H1_HOFT_C02-1126256640-4096 ->
-               ER8/hoft_C02/H1/H-H1_HOFT_C02-11262/H-H1_HOFT_C02-1126256640-4096
-
-        :param scope: Scope of the LFN (observing run: ER8, O2, postO1, ...)
-        :param name: File name of the LFN (E.g., H-H1_HOFT_C02-1126256640-4096.gwf)
-        :param rse: RSE for PFN (ignored)
-        :param rse_attrs: RSE attributes for PFN (ignored)
-        :param protocol_attrs: RSE protocol attributes for PFN (ignored)
-        :returns: Path for use in the PFN generation.
-        """
-        del rse
-        del rse_attrs
-        del protocol_attrs
-        from ligo_rucio import lfn2pfn as ligo_lfn2pfn  # pylint: disable=import-error
-        return ligo_lfn2pfn.ligo_lab(scope, name, None, None, None)
-
     @classmethod
     def _module_init_(cls):
         """
@@ -179,7 +124,6 @@ class RSEDeterministicTranslation(object):
         """
         cls.register(cls.__hash, "hash")
         cls.register(cls.__identity, "identity")
-        cls.register(cls.__ligo, "ligo")
         policy_module = None
         try:
             policy_module = config.config_get('policy', 'lfn2pfn_module')
@@ -210,9 +154,8 @@ class RSEDeterministicTranslation(object):
 
 RSEDeterministicTranslation._module_init_()  # pylint: disable=protected-access
 
-
-class RSEProtocol(object):
-    """ This class is virtual and acts as a base to inherit new protocols from. It further provides some common functionality which applies for the amjority of the protocols."""
+class GlobusRSEProtocol(RSEProtocol):
+    """ This class is to support Globus as a Rucio RSE protocol.  Inherits from abstract base class RSEProtocol."""
 
     def __init__(self, protocol_attr, rse_settings):
         """ Initializes the object with information about the referred RSE.
@@ -255,24 +198,14 @@ class RSEProtocol(object):
         lfns = [lfns] if isinstance(lfns, dict) else lfns
         for lfn in lfns:
             scope, name = lfn['scope'], lfn['name']
+
+            logging.debug('scope: %s' % scope)
+            logging.debug('name: %s' % name)
+
             if 'path' in lfn and lfn['path'] is not None:
-                pfns['%s:%s' % (scope, name)] = ''.join([self.attributes['scheme'],
-                                                         '://',
-                                                         self.attributes['hostname'],
-                                                         ':',
-                                                         str(self.attributes['port']),
-                                                         prefix,
-                                                         lfn['path'] if not lfn['path'].startswith('/') else lfn['path'][1:]
-                                                         ])
+                pfns['%s:%s' % (scope, name)] = ''.join([prefix, lfn['path'] if not lfn['path'].startswith('/') else lfn['path'][1:]])
             else:
-                pfns['%s:%s' % (scope, name)] = ''.join([self.attributes['scheme'],
-                                                         '://',
-                                                         self.attributes['hostname'],
-                                                         ':',
-                                                         str(self.attributes['port']),
-                                                         prefix,
-                                                         self._get_path(scope=scope, name=name)
-                                                         ])
+                pfns['%s:%s' % (scope, name)] = ''.join([prefix, self._get_path(scope=scope, name=name)])
         return pfns
 
     def __lfns2pfns_client(self, lfns):
@@ -327,6 +260,8 @@ class RSEProtocol(object):
         """
         ret = dict()
         pfns = [pfns] if isinstance(pfns, string_types) else pfns
+
+        logging.debug('... Beginning GlobusRSEProtocol.parse_pfns ... ')
 
         for pfn in pfns:
             parsed = urlparse(pfn)
@@ -385,7 +320,7 @@ class RSEProtocol(object):
 
             :raises RSEAccessDenied: if no connection could be established.
         """
-        pass
+        raise NotImplementedError
 
     def close(self):
         """ Closes the connection to RSE."""

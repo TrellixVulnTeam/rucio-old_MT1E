@@ -123,6 +123,7 @@ def check_xfer(task_id):
     return status
 
 def bulk_check_xfers(task_ids):
+    # TODO: handle Globus task status: ACTIVE/FAILED/SUCCEEDED
     tc = getTransferClient()
 
     logging.debug('task_ids: %s' % task_ids)
