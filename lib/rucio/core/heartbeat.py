@@ -9,12 +9,14 @@
 # - Mario Lassnig, <mario.lassnig@cern.ch>, 2015
 # - Vincent Garonne, <vincent.garonne@cern.ch>, 2015-2017
 # - Hannes Hansen, <hannes.jakob.hansen@cern.ch>, 2018-2019
+# - Cedric Serfon, <cedric.serfon@cern.ch>, 2019
 #
 # PY3K COMPATIBLE
 
 import datetime
 import hashlib
 
+from sqlalchemy import func
 from sqlalchemy.sql import distinct
 
 from rucio.db.sqla.models import Heartbeats
@@ -34,7 +36,6 @@ def sanity_check(executable, hostname, hash_executable=None, pid=None, thread=No
     :param hash_executable: Hash of the executable.
     :param pid: UNIX Process ID as a number, e.g., 1234.
     :param thread: Python Thread Object.
-
     :param session: The database session in use.
     """
     try:
@@ -55,6 +56,7 @@ def _sanity_check(executable, hostname, hash_executable=None, session=None):
     :param executable: Executable name as a string, e.g., conveyor-submitter.
     :param hostname: Hostname as a string, e.g., rucio-daemon-prod-01.cern.ch.
     :param hash_executable: Hash of the executable.
+    :param session: The database session in use.
     """
     if executable:
         if not hash_executable:
@@ -70,7 +72,7 @@ def _sanity_check(executable, hostname, hash_executable=None, session=None):
 
 
 @transactional_session
-def live(executable, hostname, pid, thread, older_than=600, hash_executable=None, session=None):
+def live(executable, hostname, pid, thread, older_than=600, hash_executable=None, payload=None, session=None):
     """
     Register a heartbeat for a process/thread on a given node.
     The executable name is used for the calculation of thread assignments.
@@ -84,6 +86,8 @@ def live(executable, hostname, pid, thread, older_than=600, hash_executable=None
     :param thread: Python Thread Object.
     :param older_than: Ignore specified heartbeats older than specified nr of seconds.
     :param hash_executable: Hash of the executable.
+    :param payload: Payload identifier which can be further used to identify the work a certain thread is executing.
+    :param session: The database session in use.
 
     :returns heartbeats: Dictionary {assign_thread, nr_threads}
     """
@@ -96,14 +100,15 @@ def live(executable, hostname, pid, thread, older_than=600, hash_executable=None
                    hostname=hostname,
                    pid=pid,
                    thread_id=thread.ident)\
-        .update({'updated_at': datetime.datetime.utcnow()})
+        .update({'updated_at': datetime.datetime.utcnow(), 'payload': payload})
     if not rowcount:
         Heartbeats(executable=hash_executable,
                    readable=executable,
                    hostname=hostname,
                    pid=pid,
                    thread_id=thread.ident,
-                   thread_name=thread.name).save(session=session)
+                   thread_name=thread.name,
+                   payload=payload).save(session=session)
 
     # assign thread identifier
     query = session.query(Heartbeats.hostname,
@@ -143,6 +148,7 @@ def die(executable, hostname, pid, thread, older_than=None, hash_executable=None
     :param thread: Python Thread Object
     :param older_than: Removes specified heartbeats older than specified nr of seconds
     :param hash_executable: Hash of the executable.
+    :param session: The database session in use.
 
     :returns heartbeats: Dictionary {assign_thread, nr_threads}
     """
@@ -166,6 +172,7 @@ def cardiac_arrest(older_than=None, session=None):
     Removes all heartbeats older than specified.
 
     :param older_than: Removes all heartbeats older than specified nr of seconds
+    :param session: The database session in use.
     """
 
     query = session.query(Heartbeats)
@@ -181,6 +188,8 @@ def list_heartbeats(session=None):
     """
     List all heartbeats.
 
+    :param session: The database session in use.
+
     :returns: List of tuples
     """
 
@@ -194,6 +203,31 @@ def list_heartbeats(session=None):
                                                           Heartbeats.thread_name)
 
     return query.all()
+
+
+@read_session
+def list_payload_counts(executable, older_than=600, hash_executable=None, session=None):
+    """
+    Give the counts of number of threads per payload for a certain executable.
+
+    :param executable: Executable name as a string, e.g., conveyor-submitter
+    :param older_than: Removes specified heartbeats older than specified nr of seconds
+    :param hash_executable: Hash of the executable.
+    :param session: The database session in use.
+
+    :returns: List of tuples
+    """
+
+    if not hash_executable:
+        hash_executable = calc_hash(executable)
+    query = session.query(Heartbeats.payload,
+                          func.count(Heartbeats.payload))\
+                   .filter(Heartbeats.executable == hash_executable)\
+                   .filter(Heartbeats.updated_at >= datetime.datetime.utcnow() - datetime.timedelta(seconds=older_than))\
+                   .group_by(Heartbeats.payload)\
+                   .order_by(Heartbeats.payload)
+
+    return dict(query.all())
 
 
 def calc_hash(executable):

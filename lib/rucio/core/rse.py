@@ -190,7 +190,12 @@ def rse_is_empty(rse, session=None):
     """
 
     rse_id = get_rse(rse, session=session)['id']
-    return get_counter(rse_id, session=session)['bytes'] == 0
+    is_empty = False
+    try:
+        is_empty = get_counter(rse_id, session=session)['bytes'] == 0
+    except exception.CounterNotFound:
+        is_empty = True
+    return is_empty
 
 
 @read_session
@@ -487,19 +492,22 @@ def get_rses_with_attribute_value(key, value, lookup_key, session=None):
 
 
 @read_session
-def get_rse_attribute(key, rse_id=None, value=None, session=None):
+def get_rse_attribute(key, rse_id=None, value=None, use_cache=True, session=None):
     """
     Retrieve RSE attribute value.
 
     :param rse_id: The RSE id.
     :param key: The key for the attribute.
     :param value: Optionally, the desired value for the attribute.
+    :param use_cache: Boolean to use memcached.
     :param session: The database session in use.
 
     :returns: A list with RSE attribute values for a Key.
     """
 
-    result = REGION.get('%s-%s-%s' % (key, rse_id, value))
+    result = NO_VALUE
+    if use_cache:
+        result = REGION.get('%s-%s-%s' % (key, rse_id, value))
     if result is NO_VALUE:
 
         rse_attrs = []
@@ -513,7 +521,6 @@ def get_rse_attribute(key, rse_id=None, value=None, session=None):
                 query = session.query(models.RSEAttrAssociation.value).filter_by(key=key, value=value).distinct()
         for attr_value in query:
             rse_attrs.append(attr_value[0])
-
         REGION.set('%s-%s-%s' % (key, rse_id, value), rse_attrs)
         return rse_attrs
 
@@ -647,7 +654,7 @@ def delete_rse_limit(rse, name=None, rse_id=None, session=None):
 
 
 @transactional_session
-def set_rse_transfer_limits(rse, activity, rse_id=None, rse_expression=None, max_transfers=0, transfers=0, waitings=0, session=None):
+def set_rse_transfer_limits(rse, activity, rse_id=None, rse_expression=None, max_transfers=0, transfers=0, waitings=0, volume=0, session=None):
     """
     Set RSE transfer limits.
 
@@ -657,6 +664,7 @@ def set_rse_transfer_limits(rse, activity, rse_id=None, rse_expression=None, max
     :param max_transfers: Maximum transfers.
     :param transfers: Current number of tranfers.
     :param waitings: Current number of waitings.
+    :param volume: Maximum transfer volume in bytes.
     :param session: The database session in use.
 
     :returns: True if successful, otherwise false.
@@ -665,7 +673,7 @@ def set_rse_transfer_limits(rse, activity, rse_id=None, rse_expression=None, max
         if not rse_id:
             rse_id = get_rse_id(rse=rse, session=session)
 
-        rse_tr_limit = models.RSETransferLimit(rse_id=rse_id, activity=activity, rse_expression=rse_expression, max_transfers=max_transfers, transfers=transfers, waitings=waitings)
+        rse_tr_limit = models.RSETransferLimit(rse_id=rse_id, activity=activity, rse_expression=rse_expression, max_transfers=max_transfers, transfers=transfers, waitings=waitings, volume=volume)
         rse_tr_limit = session.merge(rse_tr_limit)
         rowcount = rse_tr_limit.save(session=session)
         return rowcount
@@ -682,7 +690,7 @@ def get_rse_transfer_limits(rse=None, activity=None, rse_id=None, session=None):
     :param activity: The activity.
     :param rse_id: The RSE id.
 
-    :returns: A dictionary with the limits {'limit.activity': {'limit.rse_id': limit.max_transfers}}.
+    :returns: A dictionary with the limits {'limit.activity': {'limit.rse_id': {'max_transfers': limit.max_transfers, 'transfers': 0, 'waitings': 0, 'volume': 1}}}.
     """
     try:
         if not rse_id and rse:
@@ -700,7 +708,8 @@ def get_rse_transfer_limits(rse=None, activity=None, rse_id=None, session=None):
                 limits[limit.activity] = {}
             limits[limit.activity][limit.rse_id] = {'max_transfers': limit.max_transfers,
                                                     'transfers': limit.transfers,
-                                                    'waitings': limit.waitings}
+                                                    'waitings': limit.waitings,
+                                                    'volume': limit.volume}
         return limits
     except IntegrityError as error:
         raise exception.RucioException(error.args)
@@ -847,6 +856,9 @@ def get_rse_protocols(rse, schemes=None, session=None):
     # Copy verify_checksum from the attributes, later: assume True if not specified
     verify_checksum = get_rse_attribute('verify_checksum', rse_id=_rse.id, session=session)
 
+    # Copy sign_url from the attributes
+    sign_url = get_rse_attribute('sign_url', rse_id=_rse.id, session=session)
+
     read = True if _rse.availability & 4 else False
     write = True if _rse.availability & 2 else False
     delete = True if _rse.availability & 1 else False
@@ -864,6 +876,7 @@ def get_rse_protocols(rse, schemes=None, session=None):
             'credentials': None,
             'volatile': _rse.volatile,
             'verify_checksum': verify_checksum[0] if verify_checksum else True,
+            'sign_url': sign_url[0] if sign_url else None,
             'staging_area': _rse.staging_area}
 
     for op in utils.rse_supported_protocol_operations():
@@ -913,6 +926,7 @@ def get_rse_protocols(rse, schemes=None, session=None):
             pass  # If value is not a JSON string
 
         info['protocols'].append(p)
+    info['protocols'] = sorted(info['protocols'], key=lambda p: (p['hostname'], p['scheme'], p['port']))
     return info
 
 
@@ -1110,11 +1124,13 @@ def update_rse(rse, parameters, session=None):
     for key in parameters:
         if key == 'name':
             param['rse'] = parameters['name']
-        if key in ['availability_read', 'availability_write', 'availability_delete']:
+        elif key in ['availability_read', 'availability_write', 'availability_delete']:
             if parameters[key] is True:
                 availability = availability | availability_mapping[key]
             else:
                 availability = availability & ~availability_mapping[key]
+        elif key in ['latitude', 'longitude', 'time_zone', 'rse_type', 'volatile', 'deterministic', 'region_code', 'country_name', 'city', 'staging_area']:
+            param[key] = parameters[key]
     param['availability'] = availability
     query.update(param)
     if 'name' in parameters:
@@ -1144,24 +1160,27 @@ def export_rse(rse, rse_id=None, session=None):
         for k, v in _rse:
             rse_data[k] = v
 
+    rse_data.pop('continent')
+    rse_data.pop('ASN')
+    rse_data.pop('ISP')
+    rse_data.pop('deleted')
+    rse_data.pop('deleted_at')
+
     # get RSE attributes
     rse_data['attributes'] = list_rse_attributes(rse, rse_id=rse_id)
 
-    # get RSE protocols
-    rse_data['protocols'] = get_rse_protocols(rse)
-
-    # remove duplicated keys returned by get_rse_protocols()
-    rse_data['protocols'].pop('id')
-    rse_data['protocols'].pop('rse')
-    rse_data['protocols'].pop('rse_type')
-    rse_data['protocols'].pop('staging_area')
-    rse_data['protocols'].pop('deterministic')
-    rse_data['protocols'].pop('volatile')
+    protocols = get_rse_protocols(rse)
+    rse_data['lfn2pfn_algorithm'] = protocols.get('lfn2pfn_algorithm')
+    rse_data['verify_checksum'] = protocols.get('verify_checksum')
+    rse_data['credentials'] = protocols.get('credentials')
+    rse_data['availability_delete'] = protocols.get('availability_delete')
+    rse_data['availability_write'] = protocols.get('availability_write')
+    rse_data['availability_read'] = protocols.get('availability_read')
+    rse_data['protocols'] = protocols.get('protocols')
 
     # get RSE limits
-    rse_data['limits'] = get_rse_limits(rse)
-
-    # get RSE xfer limits
-    rse_data['transfer_limits'] = get_rse_transfer_limits(rse)
+    limits = get_rse_limits(rse)
+    rse_data['MinFreeSpace'] = limits.get('MinFreeSpace')
+    rse_data['MaxBeingDeletedFiles'] = limits.get('MaxBeingDeletedFiles')
 
     return rse_data
