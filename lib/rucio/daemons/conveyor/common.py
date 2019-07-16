@@ -118,7 +118,6 @@ def submit_transfer(external_host, job, submitter='submitter', logging_prepend_s
         # A eid is returned if the job is properly submitted otherwise an exception is raised
         eid = transfer_core.submit_bulk_transfers(external_host,
                                                   files=job['files'],
-                                                  # transfertool='fts3',
                                                   transfertool=TRANSFER_TOOL,
                                                   job_params=job['job_params'],
                                                   timeout=timeout,

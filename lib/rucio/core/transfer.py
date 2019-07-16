@@ -249,10 +249,12 @@ def bulk_query_transfers(request_host, transfer_ids, transfertool='fts3', timeou
         responses = GlobusTransferTool(external_host=None).bulk_query(transfer_ids=transfer_ids, timeout=timeout)
 
         for k, v in responses.items():
-            if v == 'SUCCEEDED':
-                responses[k] = RequestState.DONE
-            elif v == 'FAILED':
+            if v == 'FAILED':
                 responses[k] = RequestState.FAILED
+            elif v == 'SUCCEEDED':
+                responses[k] = RequestState.DONE
+            else:
+                responses[k] = RequestState.SUBMITTED
         return responses
     else:
         raise NotImplementedError
@@ -616,19 +618,15 @@ def get_transfer_requests_and_source_replicas(total_workers=0, worker_number=0, 
 
                 # get external_host
                 fts_hosts = rse_attrs[dest_rse_id].get('fts', None)
-                # if not fts_hosts:
-                #    logging.error('Destination RSE %s FTS attribute not defined - SKIP REQUEST %s' % (dest_rse, req_id))
-
                 source_globus_endpoint_id = rse_attrs[source_rse_id].get('globus_endpoint_id', None)
                 dest_globus_endpoint_id = rse_attrs[dest_rse_id].get('globus_endpoint_id', None)
 
                 if TRANSFER_TOOL == 'fts3' and not fts_hosts:
-                    logging.error('Destination RSE %s FTS attributes not defined - SKIP REQUEST %s' % (dest_rse, req_id))
+                    logging.error('Destination RSE %s FTS attribute not defined - SKIP REQUEST %s' % (dest_rse, req_id))
                     continue
                 if TRANSFER_TOOL == 'globus' and (not dest_globus_endpoint_id or not source_globus_endpoint_id):
                     logging.error('Destination RSE %s Globus endpoint attributes not defined - SKIP REQUEST %s' % (dest_rse, req_id))
                     continue
-
                 if retry_count is None:
                     retry_count = 0
                 if fts_hosts:
@@ -648,10 +646,8 @@ def get_transfer_requests_and_source_replicas(total_workers=0, worker_number=0, 
 
                 external_host = ''
 
-                if fts_hosts:
-                    external_host = fts_list[0]
-                    if retry_other_fts:
-                        external_host = fts_list[retry_count % len(fts_list)]
+                if retry_other_fts:
+                    external_host = fts_list[retry_count % len(fts_list)]
 
                 file_metadata = {'request_id': req_id,
                                  'scope': scope,

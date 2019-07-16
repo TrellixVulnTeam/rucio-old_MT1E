@@ -1,5 +1,17 @@
 import hashlib
 import logging
+import sys
+
+from rucio.transfertool.globusLibrary import send_delete_task
+from rucio.common.config import config_get
+from rucio.core.rse import get_rse_attribute
+
+logging.basicConfig(stream=sys.stdout,
+                    level=getattr(logging,
+                                  config_get('common', 'loglevel',
+                                             raise_exception=False,
+                                             default='DEBUG').upper()),
+                    format='%(asctime)s\t%(process)d\t%(levelname)s\t%(message)s')
 
 try:
     # PY2
@@ -167,6 +179,7 @@ class GlobusRSEProtocol(RSEProtocol):
         self.renaming = True
         self.overwrite = False
         self.rse = rse_settings
+        self.globus_endpoint_id = get_rse_attribute(key = 'globus_endpoint_id', rse_id = self.rse.get('id'))
         if self.rse['deterministic']:
             self.translator = RSEDeterministicTranslation(self.rse['rse'], rse_settings, self.attributes)
             if getattr(rsemanager, 'CLIENT_MODE', None) and \
@@ -312,7 +325,9 @@ class GlobusRSEProtocol(RSEProtocol):
 
             :raises SourceNotFound: if the source file was not found on the referred storage.
         """
+        logging.debug('... Beginning GlobusRSEProtocol.exists ... ')
         raise NotImplementedError
+        # pass
 
     def connect(self):
         """
@@ -320,11 +335,15 @@ class GlobusRSEProtocol(RSEProtocol):
 
             :raises RSEAccessDenied: if no connection could be established.
         """
-        raise NotImplementedError
+        logging.debug('... Beginning GlobusRSEProtocol.connect ... ')
+        # raise NotImplementedError
+        pass
 
     def close(self):
         """ Closes the connection to RSE."""
-        raise NotImplementedError
+        logging.debug('... Beginning GlobusRSEProtocol.close ... ')
+        # raise NotImplementedError
+        pass
 
     def get(self, path, dest, transfer_timeout=None):
         """
@@ -364,7 +383,23 @@ class GlobusRSEProtocol(RSEProtocol):
             :raises ServiceUnavailable: if some generic error occured in the library.
             :raises SourceNotFound: if the source file was not found on the referred storage.
         """
-        raise NotImplementedError
+        logging.debug('... Beginning GlobusRSEProtocol.delete ... ')
+        logging.debug('path: %s' % path)
+        logging.debug('self.attributes: %s' % self.attributes)
+        logging.debug('self.rse: %s' % self.rse)
+        logging.debug('self.globus_endpoint_id: %s' % self.globus_endpoint_id)
+        if self.globus_endpoint_id:
+            delete_response = send_delete_task(endpoint_id = self.globus_endpoint_id[0], path = path)
+        else:
+            logging.error('No rse attribute found for globus endpoint id.')
+        logging.debug('delete_response: %s' % delete_response)
+        # Below task submission sends a delete task to Globus and only checks that it was accepted
+        # TODO: Weave this into a (new?) daemon to check actual deletion on the endpoint
+        if delete_response['code'] != 'Accepted':
+            logging.error('delete_task not accepted by Globus')
+            logging.debug('delete_response: %s' % delete_response)
+        # pass
+        # TODO: create globus command to delete file on endpoint
 
     def rename(self, path, new_path):
         """ Allows to rename a file stored inside the connected RSE.

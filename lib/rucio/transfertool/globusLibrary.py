@@ -1,28 +1,54 @@
 import logging
+import os
+import sys
 import yaml
-from globus_sdk import NativeAppAuthClient, RefreshTokenAuthorizer, AccessTokenAuthorizer, TransferClient, TransferData
+from globus_sdk import NativeAppAuthClient, RefreshTokenAuthorizer, AccessTokenAuthorizer, TransferClient, TransferData, DeleteData
+from rucio.common.config import config_get
 from datetime import datetime
+
+logging.basicConfig(stream=sys.stdout,
+                    level=getattr(logging,
+                                  config_get('common', 'loglevel',
+                                             raise_exception=False,
+                                             default='DEBUG').upper()),
+                    format='%(asctime)s\t%(process)d\t%(levelname)s\t%(message)s')
+
+def load_config():
+    config = None
+    f = __file__
+    while config is None:
+        d = os.path.dirname(f)
+        if os.path.isfile(os.path.join(d, 'config.yml')):
+            config = os.path.join(d, 'config.yml')
+            break
+        f = d
+
+    if not config:
+        logging.error('Could not find config.yml in any parent directory of %s' % file)
+        raise Exception
+
+    return yaml.safe_load(open(config).read())
 
 # TODO: use new RucioGlobusTest application to centralize the globus token calls
 # RucioGlobusTest is NOT a NativeApp
 def getTransferClient():
-    # cfg = yaml.safe_load(open("./config.yml"))
-    cfg = yaml.safe_load(open("/opt/rucio/lib/rucio/transfertool/config.yml"))
+    cfg = load_config()
+    # cfg = yaml.safe_load(open("/opt/rucio/lib/rucio/transfertool/config.yml"))
     client_id = cfg['globus']['apps']['SDK Tutorial App']['client_id']
     auth_client = NativeAppAuthClient(client_id)
     refresh_token = cfg['globus']['apps']['SDK Tutorial App']['refresh_token']
 
-    # logging.info('authorizing token...')
+    logging.info('authorizing token...')
     authorizer = RefreshTokenAuthorizer(refresh_token = refresh_token, auth_client = auth_client)
     access_token = authorizer.access_token
 
-    # logging.info('initializing TransferClient...')
+    logging.info('initializing TransferClient...')
     tc = TransferClient(authorizer=authorizer)
     return tc
 
 def getTransferData():
-    # cfg = yaml.safe_load(open("./config.yml"))
-    cfg = yaml.safe_load(open("/opt/rucio/lib/rucio/transfertool/config.yml"))
+    cfg = load_config()
+    #cfg = yaml.safe_load(open("/opt/rucio/lib/rucio/transfertool/config.yml"))
     client_id = cfg['globus']['apps']['SDK Tutorial App']['client_id']
     auth_client = NativeAppAuthClient(client_id)
     refresh_token = cfg['globus']['apps']['SDK Tutorial App']['refresh_token']
@@ -47,7 +73,7 @@ def getTransferData():
 def auto_activate_endpoint(tc, ep_id):
     r = tc.endpoint_autoactivate(ep_id, if_expires_in=3600)
     if r['code'] == 'AutoActivationFailed':
-        logging.info('Endpoint({}) Not Active! Error! Source message: {}'.format(ep_id, r['message']))
+        logging.critical('Endpoint({}) Not Active! Error! Source message: {}'.format(ep_id, r['message']))
         # sys.exit(1) # TODO: don't want to exit; hook into graceful exit
     elif r['code'] == 'AutoActivated.CachedCredential':
             logging.info('Endpoint({}) autoactivated using a cached credential.'.format(ep_id))
@@ -77,9 +103,8 @@ def submit_xfer(source_endpoint_id, destination_endpoint_id, source_path, dest_p
     return transfer_result["task_id"]
 
 def bulk_submit_xfer(submitjob, recursive=False):
-
-    # cfg = yaml.safe_load(open("./config.yml"))
-    cfg = yaml.safe_load(open("/opt/rucio/lib/rucio/transfertool/config.yml"))
+    cfg = load_config()
+    #cfg = yaml.safe_load(open("/opt/rucio/lib/rucio/transfertool/config.yml"))
     client_id = cfg['globus']['apps']['SDK Tutorial App']['client_id']
     auth_client = NativeAppAuthClient(client_id)
     refresh_token = cfg['globus']['apps']['SDK Tutorial App']['refresh_token']
@@ -95,7 +120,14 @@ def bulk_submit_xfer(submitjob, recursive=False):
     tc = TransferClient(authorizer=authorizer)
     # as both endpoints are expected to be Globus Server endpoints, send auto-activate commands for both globus endpoints
     a = auto_activate_endpoint(tc, source_endpoint_id)
+    logging.debug('a: %s' % a)
+    if a != 'AlreadyActivated':
+        return None
+
     b = auto_activate_endpoint(tc, destination_endpoint_id)
+    logging.debug('b: %s' % b)
+    if b != 'AlreadyActivated':
+        return None
 
     # make job_label for task a timestamp
     x = datetime.now()
@@ -140,3 +172,13 @@ def bulk_check_xfers(task_ids):
     logging.debug('responses: %s' % responses)
 
     return responses
+
+def send_delete_task(endpoint_id = None, path = None):
+    tc = getTransferClient()
+    ddata = DeleteData(tc, endpoint_id, recursive=True)
+    # ddata.add_item("/dir/to/delete/")
+    # ddata.add_item("/file/to/delete/file.txt")
+    ddata.add_item(path)
+    delete_result = tc.submit_delete(ddata)
+
+    return delete_result
