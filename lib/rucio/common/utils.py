@@ -487,6 +487,22 @@ def construct_surl_BelleII(dsn, filename):
     else:
         return '%s/%s' % (dsn, filename)
 
+def construct_surl_bnl(dsn, filename):
+    """
+    Defines relative SURL for NSLS2 specific replicas.
+    To be used for non-deterministic NSLS2 sites.
+    This logic also allows for replication rule at the file DID level
+    """
+
+    if dsn:
+        fields = dsn.split("/")
+        nfields = len(fields)
+        if nfields == 0:
+            return '/other/%s' % (filename)
+        else:
+            return '%s/%s' % (dsn, filename)
+    else:
+        return filename
 
 def construct_surl(dsn, filename, naming_convention=None):
     if naming_convention == 'T0':
@@ -495,6 +511,8 @@ def construct_surl(dsn, filename, naming_convention=None):
         return construct_surl_DQ2(dsn, filename)
     elif naming_convention == 'BelleII':
         return construct_surl_BelleII(dsn, filename)
+    elif naming_convention == 'bnl':
+        return construct_surl_bnl(dsn, filename)
 
     return construct_surl_DQ2(dsn, filename)
 
