@@ -64,7 +64,10 @@ def getTransferData():
     a = auto_activate_endpoint(tc, source_endpoint_id)
     b = auto_activate_endpoint(tc, destination_endpoint_id)
 
-    job_label = str(datetime.now())
+    # make job_label for task a timestamp
+    x = datetime.now()
+    job_label = x.strftime('%Y%m%d%H%M%s')
+    
     # from Globus... sync_level=checksum means that before files are transferred, Globus will compute checksums on the source and destination files, and only transfer files that have different checksums are transferred. verify_checksum=True means that after a file is transferred, Globus will compute checksums on the source and destination files to verify that the file was transferred correctly.  If the checksums do not match, it will redo the transfer of that file.
     tdata = TransferData(tc, source_endpoint_id, destination_endpoint_id, label = job_label, sync_level="checksum", verify_checksum=True)
 
