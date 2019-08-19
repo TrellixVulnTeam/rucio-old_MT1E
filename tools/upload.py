@@ -25,6 +25,7 @@ import json
 import logging
 from rucio.client.replicaclient import ReplicaClient
 from rucio.client.rseclient import RSEClient
+from rucio.common.config import config_get
 from rucio.common.utils import adler32 as rucio_adler32
 import sys
 import urllib2
@@ -32,7 +33,10 @@ from urlparse import urlparse
 import zlib
 
 logging.basicConfig(stream=sys.stdout,
-                    level='DEBUG',
+                    level=getattr(logging,
+                                  config_get('common', 'loglevel',
+                                             raise_exception=False,
+                                             default='DEBUG').upper()),
                     format='%(asctime)s\t%(process)d\t%(levelname)s\t%(message)s')
 
 def __zlib_csum(url, func):
@@ -67,9 +71,6 @@ def __zlib_csum(url, func):
 
     return str('%08x' % csum), clength
 
-def crc32(url):
-    return __zlib_csum(url, zlib.crc32)
-
 def adler32(url):
     return __zlib_csum(url, zlib.adler32)
 
@@ -77,15 +78,16 @@ def __get_globus_file(file):
     rseclient = RSEClient()
     rse = rseclient.list_rse_attributes('RUCIOTEST')
     globus_endpoint_id = rse['globus_endpoint_id']
+    #TODO:
 
 def filehandler(file):
-    o = urlparse(file['pfn'])
+    pfn = file['pfn']
+    o = urlparse(pfn)
     scheme = o.scheme
+    scope = file['scope']
+    name = pfn.split('/')[-1]
 
     if scheme == 'file':
-        scope = file['scope']
-        name = file['name']
-        pfn = file['pfn']
         #rucio_a32 = rucio_adler32(o.path) # using the adler32 function from Rucio
         result = adler32(file['pfn']) # using function above
         mem_a32 = result[0] # adler32 result
@@ -107,14 +109,22 @@ if __name__ == '__main__':
         files = json.load(f)
         logging.debug('files: %s' % files)
         replicas = []
+        replicaclient = ReplicaClient()
+        registerlog = []
         for file in files['files']:
             replica = filehandler(file)
             replicas.append(replica)
             logging.debug('replicas: %s' % replicas)
-        replicaclient = ReplicaClient()
-        # returns True on successful registration
-        r = replicaclient.add_replicas(rse = rse, files = replicas)
-        if r:
-            logging.debug('Successful')
-        else:
-            logging.debug('Unsuccessful')
+            # returns True on successful registration
+            try:
+                r = replicaclient.add_replicas(rse = rse, files = replicas)
+                logging.debug('Successful')
+            except:
+                logging.error('Unknown exception.  Adding file to exception log registerlog.json')
+                registerlog.append(file)
+
+    if len(registerlog) > 0:
+        # write to log file
+        with open('registerlog.json', 'w') as f:
+            json.dump(registerlog, f)
+    logging.debug('Job complete.')
