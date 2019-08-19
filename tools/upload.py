@@ -39,6 +39,17 @@ logging.basicConfig(stream=sys.stdout,
                                              default='DEBUG').upper()),
                     format='%(asctime)s\t%(process)d\t%(levelname)s\t%(message)s')
 
+try:
+    from ConfigParser import NoOptionError  # py2
+except Exception:
+    from configparser import NoOptionError  # py3
+
+try:
+    schemes = config_get('conveyor', 'scheme')
+except NoOptionError:
+    scheme = None
+
+
 def __zlib_csum(url, func):
     # adapted from http://j2py.blogspot.com/2014/09/python-generates-crc32-and-adler32.html
     # TODO: test this approach for "large" files; supposed to be memory optimized for "large" files
@@ -82,8 +93,6 @@ def __get_globus_file(file):
 
 def filehandler(file):
     pfn = file['pfn']
-    o = urlparse(pfn)
-    scheme = o.scheme
     scope = file['scope']
     name = pfn.split('/')[-1]
 
@@ -112,15 +121,21 @@ if __name__ == '__main__':
         replicaclient = ReplicaClient()
         registerlog = []
         for file in files['files']:
-            replica = filehandler(file)
-            replicas.append(replica)
-            logging.debug('replicas: %s' % replicas)
-            # returns True on successful registration
-            try:
-                r = replicaclient.add_replicas(rse = rse, files = replicas)
-                logging.debug('Successful')
-            except:
-                logging.error('Unknown exception.  Adding file to exception log registerlog.json')
+            o = urlparse(file['pfn'])
+            scheme = o.scheme
+            if scheme in schemes:
+                replica = filehandler(file)
+                replicas.append(replica)
+                logging.debug('replicas: %s' % replicas)
+                # returns True on successful registration
+                try:
+                    r = replicaclient.add_replicas(rse = rse, files = replicas)
+                    logging.debug('Successful')
+                except:
+                    logging.error('Unknown exception.  Adding file to exception log registerlog.json')
+                    registerlog.append(file)
+            else:
+                logging.error('Scheme not supported in rucio.cfg.  Adding file to exception log registerlog.json')
                 registerlog.append(file)
 
     if len(registerlog) > 0:
