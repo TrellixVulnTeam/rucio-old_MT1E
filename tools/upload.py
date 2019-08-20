@@ -23,6 +23,7 @@
 
 import json
 import logging
+import os
 from rucio.client.replicaclient import ReplicaClient
 from rucio.client.rseclient import RSEClient
 from rucio.common.config import config_get
@@ -95,20 +96,24 @@ def filehandler(file):
     pfn = file['pfn']
     scope = file['scope']
     name = pfn.split('/')[-1]
+    scheme = file['scheme']
 
-    if scheme == 'file':
-        #rucio_a32 = rucio_adler32(o.path) # using the adler32 function from Rucio
-        result = adler32(file['pfn']) # using function above
-        mem_a32 = result[0] # adler32 result
-        bytes = result[1] # file size in bytes
-        logging.debug('mem_a32: %s' % mem_a32)
-        replica = {'scope': scope, 'name': name, 'bytes': bytes, 'adler32': mem_a32, 'pfn': pfn}
-        return replica
-    elif scheme == 'globus':
-        __get_globus_file(file)
-
+    if 'adler32' and 'bytes' in file.keys():
+        adler32 = file['adler32']
+        bytes = file['bytes']
+    elif scheme == 'file':
+        path = file['path']
+        bytes = os.path.getsize(path)
+        adler32 = rucio_adler32(path) # using the adler32 function from Rucio
+        #result = adler32(file['pfn']) # using function above; appears to optimize computational time
+        # adler32 = result[0] # adler32 result
+        # bytes = result[1] # file size in bytes
+        logging.debug('adler32: %s' % adler32)
     else:
-        logging.error('%s is an unsupported scheme.' % scheme)
+        logging.debug('Unsupported schema or not enough attributes supplied.')
+
+    replica = {'scope': scope, 'name': name, 'bytes': bytes, 'adler32': adler32, 'pfn': pfn}
+    return replica
 
 if __name__ == '__main__':
     filelist = sys.argv[1]
@@ -117,12 +122,14 @@ if __name__ == '__main__':
     with open(filelist, 'r') as f:
         files = json.load(f)
         logging.debug('files: %s' % files)
-        replicas = []
         replicaclient = ReplicaClient()
         registerlog = []
         for file in files['files']:
+            replicas = []
             o = urlparse(file['pfn'])
             scheme = o.scheme
+            file['path'] = o.path
+            file['scheme'] = scheme
             if scheme in schemes:
                 replica = filehandler(file)
                 replicas.append(replica)
