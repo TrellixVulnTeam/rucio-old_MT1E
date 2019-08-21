@@ -1,5 +1,6 @@
 # This script will take a json file containing pfns and register in Rucio
-# It will calculate the adler32 checksum and filesize
+# If adler32 checksum and filesize attributes are not included they will be calculated
+# The scope and pfn are always required
 # 2 sys args are required to run
 #       1. The path to the json file containing the pfns
 #       2. The name of the RSE to register the replicas on
@@ -7,25 +8,25 @@
 #   python upload.py /home/msnyder/files.txt RUCIOTEST
 # An example of the json format:
 # {
-#   "files": [
+#   [
 #     {
 #       "scope": "nsls2",
-#       "pfn": "file:///home/msnyder/data/test18.txt"
-#     },
-#     {
-#       "scope": "nsls2",
-#       "pfn": "file:///home/msnyder/data/test19.txt"
+#       "name": "EIGER_16M_Nov2015.tar.bz2",
+#       "bytes": 29,
+#       "adler32": "9de60a53",
+#       "pfn": "globus:///~/u02/DectrisExampleData/EIGER_16M_Nov2015.tar.bz2",
+#       "dataset": "insulin_ff"
 #     }
 #   ]
 # }
-#
-# The scope and pfn are required
+
 
 import json
 import logging
 import os
 from rucio.client.replicaclient import ReplicaClient
 from rucio.client.rseclient import RSEClient
+from rucio.client.didclient import DIDClient
 from rucio.common.config import config_get
 from rucio.common.utils import adler32 as rucio_adler32
 import sys
@@ -123,8 +124,9 @@ if __name__ == '__main__':
         files = json.load(f)
         logging.debug('files: %s' % files)
         replicaclient = ReplicaClient()
+        didclient = DIDClient()
         registerlog = []
-        for file in files['files']:
+        for file in files:
             replicas = []
             o = urlparse(file['pfn'])
             scheme = o.scheme
@@ -137,9 +139,23 @@ if __name__ == '__main__':
                 # returns True on successful registration
                 try:
                     r = replicaclient.add_replicas(rse = rse, files = replicas)
-                    logging.debug('Successful')
+                    logging.debug('Successful replica creation')
+                    if 'dataset' in file.keys():
+                        dids = []
+                        did = {'scope': file['scope'], 'name': file['name']}
+                        dids.append(did)
+                        try:
+                            d = didclient.attach_dids(scope = file['scope'], name = file['dataset'], dids = dids)
+                            logging.debug('Successfully attached did')
+                        except:
+                            errorstring = 'Exception attaching did'
+                            logging.error(errorstring)
+                            file['error'] = errorstring
+                            registerlog.append(file)
                 except:
-                    logging.error('Unknown exception.  Adding file to exception log registerlog.json')
+                    errorstring = 'Exception creating replica'
+                    logging.error(errorstring)
+                    file['error'] = errorstring
                     registerlog.append(file)
             else:
                 logging.error('Scheme not supported in rucio.cfg.  Adding file to exception log registerlog.json')
