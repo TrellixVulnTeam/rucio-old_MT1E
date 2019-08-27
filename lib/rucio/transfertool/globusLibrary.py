@@ -67,7 +67,7 @@ def getTransferData():
     # make job_label for task a timestamp
     x = datetime.now()
     job_label = x.strftime('%Y%m%d%H%M%s')
-    
+
     # from Globus... sync_level=checksum means that before files are transferred, Globus will compute checksums on the source and destination files, and only transfer files that have different checksums are transferred. verify_checksum=True means that after a file is transferred, Globus will compute checksums on the source and destination files to verify that the file was transferred correctly.  If the checksums do not match, it will redo the transfer of that file.
     tdata = TransferData(tc, source_endpoint_id, destination_endpoint_id, label = job_label, sync_level="checksum", verify_checksum=True)
 
@@ -137,13 +137,15 @@ def bulk_submit_xfer(submitjob, recursive=False):
     job_label = x.strftime('%Y%m%d%H%M%s')
 
     # from Globus... sync_level=checksum means that before files are transferred, Globus will compute checksums on the source and destination files, and only transfer files that have different checksums are transferred. verify_checksum=True means that after a file is transferred, Globus will compute checksums on the source and destination files to verify that the file was transferred correctly.  If the checksums do not match, it will redo the transfer of that file.
-    tdata = TransferData(tc, source_endpoint_id, destination_endpoint_id, label = job_label, sync_level="checksum", verify_checksum=True)
+    # tdata = TransferData(tc, source_endpoint_id, destination_endpoint_id, label = job_label, sync_level="checksum", verify_checksum=True)
+    tdata = TransferData(tc, source_endpoint_id, destination_endpoint_id, label = job_label, sync_level="checksum")
 
     for file in submitjob:
         source_path = file.get('sources')[0]
         dest_path = file.get('destinations')[0]
+        md5 = file['metadata']['md5']
         # TODO: support passing a recursive parameter to Globus
-        tdata.add_item(source_path, dest_path, recursive = False)
+        tdata.add_item(source_path, dest_path, recursive = False, external_checksum = md5)
 
     # logging.info('submitting transfer...')
     transfer_result = tc.submit_transfer(tdata)

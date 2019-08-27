@@ -28,7 +28,7 @@ from rucio.client.replicaclient import ReplicaClient
 from rucio.client.rseclient import RSEClient
 from rucio.client.didclient import DIDClient
 from rucio.common.config import config_get
-from rucio.common.utils import adler32 as rucio_adler32
+from rucio.common.utils import adler32 as rucio_adler32, md5 as rucio_md5
 import sys
 import urllib2
 from urlparse import urlparse
@@ -74,8 +74,8 @@ def __zlib_csum(url, func):
                     break
     finally:
         f.close()
-    logging.debug('csum: %s' % csum)
-    logging.debug('clength: %s' % clength)
+    # logging.debug('csum: %s' % csum)
+    # logging.debug('clength: %s' % clength)
     # if csum is not None:
     #     csum = csum & 0xffffffff
     # backflip on 32bit
@@ -99,13 +99,14 @@ def filehandler(file):
     name = pfn.split('/')[-1]
     scheme = file['scheme']
 
-    if 'adler32' and 'bytes' in file.keys():
-        adler32 = file['adler32']
+    if 'md5' and 'bytes' in file.keys():
+        md5 = file['md5']
         bytes = file['bytes']
     elif scheme == 'file':
         path = file['path']
         bytes = os.path.getsize(path)
-        adler32 = rucio_adler32(path) # using the adler32 function from Rucio
+        md5 = rucio_md5(path) # using the md5 function from Rucio
+        # adler32 = rucio_adler32(path) # using the adler32 function from Rucio
         #result = adler32(file['pfn']) # using function above; appears to optimize computational time
         # adler32 = result[0] # adler32 result
         # bytes = result[1] # file size in bytes
@@ -113,7 +114,7 @@ def filehandler(file):
     else:
         logging.debug('Unsupported schema or not enough attributes supplied.')
 
-    replica = {'scope': scope, 'name': name, 'bytes': bytes, 'adler32': adler32, 'pfn': pfn}
+    replica = {'scope': scope, 'name': name, 'bytes': bytes, 'md5': md5, 'pfn': pfn}
     return replica
 
 if __name__ == '__main__':
