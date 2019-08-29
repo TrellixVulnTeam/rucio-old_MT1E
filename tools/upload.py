@@ -1,5 +1,5 @@
 # This script will take a json file containing pfns and register in Rucio
-# If adler32 checksum and filesize attributes are not included they will be calculated
+# If md5 checksum and filesize attributes are not included it will attempt to calculate if storage is reachable
 # The scope and pfn are always required
 # 2 sys args are required to run
 #       1. The path to the json file containing the pfns
