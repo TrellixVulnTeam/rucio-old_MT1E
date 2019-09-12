@@ -1,25 +1,26 @@
-# This script will take a json file containing pfns and register in Rucio
-# If md5 checksum and filesize attributes are not included it will attempt to calculate if storage is reachable
-# The scope and pfn are always required
-# 2 sys args are required to run
-#       1. The path to the json file containing the pfns
-#       2. The name of the RSE to register the replicas on
-# An example of the command:
-#   python upload.py /home/msnyder/files.txt RUCIOTEST
-# An example of the json format:
-# {
-#   [
-#     {
-#       "scope": "nsls2",
-#       "name": "EIGER_16M_Nov2015.tar.bz2",
-#       "bytes": 29,
-#       "adler32": "9de60a53",
-#       "pfn": "globus:///~/u02/DectrisExampleData/EIGER_16M_Nov2015.tar.bz2",
-#       "dataset": "insulin_ff"
-#     }
-#   ]
-# }
-
+"""
+This script will take a json file containing pfns and register in Rucio
+If md5 checksum and filesize attributes are not included it will attempt to calculate if storage is reachable
+The scope and pfn are required
+2 sys args are required to run
+      1. The path to the json file containing the pfns
+      2. The name of the RSE to register the replicas on
+An example of the command:
+  python upload.py /home/msnyder/files.txt RUCIOTEST
+An example of the json format:
+{
+  [
+    {
+      "scope": "nsls2",
+      "name": "EIGER_16M_Nov2015.tar.bz2",
+      "bytes": 29,
+      "adler32": "9de60a53",
+      "pfn": "globus:///~/u02/DectrisExampleData/EIGER_16M_Nov2015.tar.bz2",
+      "dataset": "insulin_ff"
+    }
+  ]
+}
+"""
 
 import json
 import logging

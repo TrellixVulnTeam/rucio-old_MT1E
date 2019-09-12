@@ -245,8 +245,13 @@ def bulk_query_transfers(request_host, transfer_ids, transfertool='fts3', timeou
                         fts_resps[transfer_id][request_id]['new_state'] = RequestState.DONE
         return fts_resps
     elif transfertool == 'globus':
-        logging.debug('transfer_ids: %s' % transfer_ids)
-        responses = GlobusTransferTool(external_host=None).bulk_query(transfer_ids=transfer_ids, timeout=timeout)
+        try:
+            start_time = time.time()
+            logging.debug('transfer_ids: %s' % transfer_ids)
+            responses = GlobusTransferTool(external_host=None).bulk_query(transfer_ids=transfer_ids, timeout=timeout)
+            record_timer('core.request.bulk_query_transfers', (time.time() - start_time) * 1000 / len(transfer_ids))
+        except Exception:
+            raise
 
         for k, v in responses.items():
             if v == 'FAILED':

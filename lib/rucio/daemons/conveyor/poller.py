@@ -267,7 +267,8 @@ def poll_transfers(external_host, xfers, prepend_str='', request_ids=None, timeo
 
         if TRANSFER_TOOL == 'globus':
             for task_id in resps:
-                transfer_core.update_transfer_state(external_host=None, transfer_id=task_id, state=resps[task_id])
+                ret = transfer_core.update_transfer_state(external_host=None, transfer_id=task_id, state=resps[task_id])
+                record_counter('daemons.conveyor.poller.update_request_state.%s' % ret)
         else:
             for transfer_id in resps:
                 try:
